@@ -67,9 +67,9 @@ class Parser:
 
       atoms = Parser.logical_split(condition)
 
-      if len(atoms) == 3 and (is_iterable(atoms[1]) or is_iterable(atoms[2])):
+      if len(atoms) == 3 and (Parser.is_iterable(atoms[1]) or Parser.is_iterable(atoms[2])):
           for idx, component in enumerate(atoms[1:]):
-              if is_iterable(component):
+              if Parser.is_iterable(component):
                   atoms[idx + 1] = logical_split(component)[1:]
 
           retval = set()
