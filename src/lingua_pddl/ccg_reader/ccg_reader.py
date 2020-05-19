@@ -1,19 +1,20 @@
 import itertools
 import re
 import xml.etree.ElementTree as ET
-from .types import Task, Conditional, Conjunction, Object
+from .types import Task, Conditional, Conjunction, Object, Attribute, Limit, Relation, Anaphora
 
 class CCGReader:
     @staticmethod
-    def parse(text):
-      return CCGReader.read(ET.fromstring(text))
-      
+    def read(text):
+        return XMLReader.read(ET.fromstring(text))
+
+class XMLReader: 
     @staticmethod
     def read(node):
         try:
             if node.tag == 'xml':
-                return CCGReader.read(node.find('lf')[0])
-
+                return XMLReader.read(node.find('lf')[0])
+            
             if TaskReader.is_task(node):
                 return TaskReader.read(node)
 
@@ -28,21 +29,67 @@ class CCGReader:
 
             if PerceptReader.is_percept(node):
                 return PerceptReader.read(node)
-
+            
             return ObjectReader.read(node)
         except Exception as e:
+            # print(str(e))
             pass
 
 
         return None
 
+class AttributeReader:
+    @staticmethod
+    def read(node):
+        if node.tag == 'xml':
+            return XMLReader.read(node)
+
+        return Attribute(AttributeReader.get_type(node), AttributeReader.get_value(node))
+
+    @staticmethod
+    def get_type(node):
+        return node.find('nom').get('name').split(':')[1]
+
+    @staticmethod
+    def get_value(node):
+        return node.find('prop').get('name')
+
+    @staticmethod
+    def is_attribute(node):
+        try:
+            if node.tag == 'satop':
+                return ':adj' in node.get('nom')
+            return ':adj' in node.find('nom').get('name')
+        except Exception as e:
+            print(str(e))
+        return False
+
+class RelationReader:
+    @staticmethod
+    def read(node):
+        if node.tag == 'xml':
+            return XMLReader.read(node)
+
+        return Relation(RelationReader.get_type(node), ObjectReader.read(node))
+
+    @staticmethod
+    def get_type(node):
+        for child in node.findall('diamond'):
+            if child.get('mode') == 'predicate':
+                return child.find('prop').get('name')
+        return None
+
+    @staticmethod
+    def get_value(node):
+        return node.find('prop').get('name')
+
 class ObjectReader:
     @staticmethod
     def read(node):
         if node.tag == 'xml':
-            return CCGReader.read(node)
+            return XMLReader.read(node)
 
-        return Object(ObjectReader.get_type_name(node), ObjectReader.get_object(node))
+        return ObjectReader.get_object(node)
 
     @staticmethod
     def get_type_name(node):
@@ -52,103 +99,73 @@ class ObjectReader:
 
     @staticmethod
     def get_object(node):
-        components = []
-
-        if not ObjectReader.is_universal(node):
-            components.append(ObjectReader.get_object_property(node, ObjectReader.is_relation(node)))
-
-        for arg in node.findall('diamond'):
-            if arg.get('mode').startswith('Compound'):
-                continue
-
-            component = ObjectReader.get_object_property(arg, ObjectReader.is_relation(arg))
-            if component:
-                components.append(component)
-
-        if len(components) > 1:
-            result = '(intersect ' + ' '.join(components) + ')'
-        else:
-            result = components[0]
-
-        return ObjectReader.get_limit(node, result)
-
-    @staticmethod
-    def get_object_property(node, is_relation = False):
-
         if ObjectReader.is_anaphora(node):
-            return 'anaphora:' + node.find('prop').get('name')
+            return Anaphora(
+                ObjectReader.get_type_name(node),
+                ObjectReader.get_name(node),
+            )
 
-        nominal = node.find('nom')
+        return Object(
+            ObjectReader.get_type_name(node),
+            ObjectReader.get_name(node),
+            ObjectReader.get_attributes(node),
+            ObjectReader.get_relation(node),
+            ObjectReader.get_limit(node)
+        )
+        # components = []
 
-        if nominal is None:
-            return None
+        # if not ObjectReader.is_universal(node):
+        #     components.append(ObjectReader.get_object_property(node, ObjectReader.is_relation(node)))
 
-        if is_relation:
-            child = node.find('diamond')
+        # for arg in node.findall('diamond'):
+        #     if arg.get('mode').startswith('Compound'):
+        #         continue
 
-            if child is not None:
-                return '(is_' + node.find('prop').get('name') + ' ' + ObjectReader.get_object_property(child, ObjectReader.is_relation(child)) + ' ?)'
-            else:
-                return '(is_' + node.find('nom').get('name').split(':')[1] + ' ' + node.find('prop').get('name') + ' ?)'
+        #     component = ObjectReader.get_object_property(arg, ObjectReader.is_relation(arg))
+        #     if component:
+        #         components.append(component)
+        # print(components)
+        # if len(components) > 1:
+        #     result = '(intersect ' + ' '.join(components) + ')'
+        # else:
+        #     result = components[0]
 
-        property_name = ObjectReader.get_property_name(node)
-
-        return '(' + property_name + ' ?)'
+        # return ObjectReader.get_limit(node, result)
 
     @staticmethod
-    def get_property_name(node, property_name=''):
-        if not property_name:
-            property_name = node.find('prop').get('name')
+    def get_name(node):
+        return node.find('prop').get('name')
 
-        for diamond in node.findall('diamond'):
-            if not diamond.get('mode').startswith('Compound'):
-                continue
+    @staticmethod
+    def get_attributes(node):
+        attributes = []
 
-            property_name = property_name + '_' + diamond.find('prop').get('name')
-            property_name = ObjectReader.get_property_name(diamond, property_name)
+        for child in node.findall('diamond'):
+            if child.get('mode') == 'mod':
+                attributes.append(AttributeReader.read(child))
 
-        return property_name
+        return attributes
 
     @staticmethod
     def is_anaphora(node):
         return node.find('prop') is not None and node.find('prop').get('name') in ['it']
 
     @staticmethod
-    def is_relation(node):
-        return node.get('mode') == 'Mod'
+    def get_relation(node):
+        for child in node.findall('diamond'):
+            if child.get('mode') == 'relation':
+                return RelationReader.read(child)
+        return None
 
     @staticmethod
-    def is_universal(node):
-        try:
-            return [child for child in node.findall('diamond')
-                          if child.get('mode') == 'num'][0].find('prop').get('name') == 'all'
-        except:
-            return False
-
-    @staticmethod
-    def get_limit(node, condition):
-        number = None
-        word = None
-
-        for arg in [child for child in node.findall('diamond') if child.get('mode') in ['det', 'num']]:
-            if arg.get('mode') == 'det':
-                word = arg.find('prop').get('name')
-            if arg.get('mode') == 'num':
-                number = arg.find('prop').get('name')
-
-        if not word or not number:
-            return condition
-
-        if number == 'pl':
-            return condition
-
-        return '(' + ('only' if word != 'a' else 'any') + ' ' + condition + ' 1)'
+    def get_limit(node):
+        return None
 
 class TaskReader:
     @staticmethod
     def read(node):
         if node.tag == 'xml':
-            return CCGReader.read(node.find('lf')[0])
+            return XMLReader.read(node.find('lf')[0])
 
         arguments = TaskReader.get_method_args(node)
 
@@ -162,7 +179,7 @@ class TaskReader:
         type_names = []
 
         for diamond in node.findall('diamond'):
-            if not diamond.get('mode').startswith('Relation'):
+            if not diamond.get('mode').startswith('particle'):
                 continue
 
             task_name = task_name + '_' + diamond.find('prop').get('name')
@@ -176,10 +193,10 @@ class TaskReader:
 
     @staticmethod
     def get_method_args(node, layer = 0):
-        children = [child for child in node.findall('diamond') if child.get('mode').startswith('Arg')]
+        children = [child for child in node.findall('diamond') if child.get('mode').startswith('arg')]
         args = []
         for child in children:
-            args.append(CCGReader.read(child))
+            args.append(XMLReader.read(child))
 
         return args
 
@@ -197,12 +214,12 @@ class ConditionalReader:
     @staticmethod
     def read(node):
         if node.tag == 'xml':
-            return CCGReader.read(node.find('lf')[0])
+            return XMLReader.read(node.find('lf')[0])
 
         antecedent = ConditionalReader.get_antecedent(node)
         consequent = ConditionalReader.get_consequent(node)
 
-        return Conditional(CCGReader.read(antecedent), CCGReader.read(consequent), ConditionalReader.is_persistent(node), ConditionalReader.is_inverted(node))
+        return Conditional(XMLReader.read(antecedent), XMLReader.read(consequent), ConditionalReader.is_persistent(node), ConditionalReader.is_inverted(node))
 
     @staticmethod
     def is_conditional(node):
@@ -238,12 +255,12 @@ class ConjunctionReader:
     @staticmethod
     def read(node):
         if node.tag == 'xml':
-            return CCGReader.read(node.find('lf')[0])
+            return XMLReader.read(node.find('lf')[0])
 
         first = ConjunctionReader.get_first_arg(node)
         second = ConjunctionReader.get_second_arg(node)
 
-        return Conjunction(ConjunctionReader.get_tag(node), CCGReader.read(first), CCGReader.read(second))
+        return Conjunction(ConjunctionReader.get_tag(node), XMLReader.read(first), XMLReader.read(second))
 
     @staticmethod
     def get_tag(node):
@@ -252,12 +269,12 @@ class ConjunctionReader:
     @staticmethod
     def get_first_arg(node):
         children = node.findall('diamond')
-        return [child for child in children if child.get('mode') == 'Arg0'][0]
+        return [child for child in children if child.get('mode') == 'left'][0]
 
     @staticmethod
     def get_second_arg(node):
         children = node.findall('diamond')
-        return [child for child in children if child.get('mode') == 'Arg1'][0]
+        return [child for child in children if child.get('mode') == 'right'][0]
 
     @staticmethod
     def is_conjunction(node):
@@ -273,19 +290,19 @@ class QueryReader:
     @staticmethod
     def read(node):
         if node.tag == 'xml':
-            return CCGReader.read(node.find('lf')[0])
+            return XMLReader.read(node.find('lf')[0])
 
-        return Query(QueryReader.get_predicate(node), CCGReader.read(QueryReader.get_descriptor(node)))
+        return Query(QueryReader.get_predicate(node), XMLReader.read(QueryReader.get_descriptor(node)))
 
     @staticmethod
     def get_predicate(node):
         children = node.findall('diamond')
-        return [child for child in children if child.get('mode') == 'Arg0'][0].find('prop').get('name')
+        return [child for child in children if child.get('mode') == 'arg0'][0].find('prop').get('name')
 
     @staticmethod
     def get_descriptor(node):
         children = node.findall('diamond')
-        return [child for child in children if child.get('mode') == 'Arg1'][0]
+        return [child for child in children if child.get('mode') == 'arg1'][0]
 
     @staticmethod
     def is_query(node):
@@ -302,11 +319,11 @@ class PerceptReader:
     def read(node):
         try:
             if node.tag == 'xml':
-                return CCGReader.read(node)
+                return XMLReader.read(node)
 
             children = node.findall('diamond')
-            child = [child for child in children if child.get('mode') == 'Arg0'][0]
-            return CCGReader.read(child)
+            child = [child for child in children if child.get('mode') == 'arg0'][0]
+            return XMLReader.read(child)
         except Exception as e:
            print(str(e))
 
@@ -321,21 +338,4 @@ class PerceptReader:
         except Exception as e:
             print(str(e))
         return False
-
-if __name__ == '__main__':
-    from _openccg import OpenCCG
-
-    with OpenCCG() as openccg:
-
-        text = 'dance'
-        parses = openccg.parse(text)
-
-        for parse in parses:
-
-            print(ET.tostring(parse))
-            task = CCGReader.read(parse)
-
-            if not task:
-                continue
-
-            print(task.toJSON())
+            

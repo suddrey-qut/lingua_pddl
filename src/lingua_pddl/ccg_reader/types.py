@@ -1,7 +1,7 @@
 import re
 import copy
 
-class Task:
+class Task(object):
     def __init__(self, name, arguments):
         self.method_arguments = arguments
 
@@ -38,8 +38,23 @@ class Task:
     def set_argument_type(self, key, value):
         self.method_argument_types[key] = value
 
+    def is_valid(self):
+        for key in self.method_arguments:
+            if not self.method_arguments[key] or not self.method_arguments[key].is_valid():
+                return False
+        return True
+
     def __str__(self):
-        return self.get_name() + ' - {' + ' '.join([key + ': ' + str(self.method_arguments[key]) for key in self.method_arguments]) + '}'
+        outstr = self.get_name()
+        for key in self.method_arguments:
+            outstr += '\n\t{}:'.format(key)
+            for line in str(self.method_arguments[key]).split('\n'):
+                outstr += '\n\t\t{}'.format(line)
+         
+        return outstr
+
+    def __bool__(self):
+        return self.is_valid()
 
     def toJSON(self):
         return {
@@ -52,17 +67,17 @@ class Task:
     #def __deepcopy__(self, memodict={}):
     #    return Task(self.task_name, {arg_id: copy.deepcopy(self.method_arguments[arg_id]) for arg_id in self.method_arguments})
 
-class Conjunction:
-    def __init__(self, tag, first, second):
+class Conjunction(object):
+    def __init__(self, tag, left, right):
         self.tag = tag
-        self.first = first
-        self.second = second
+        self.left = left
+        self.right = right
 
         self.id = None
 
     def get_type_name(self):
-        if isinstance(self.first, Object):
-            return self.first.get_type_name()
+        if isinstance(self.left, Object):
+            return self.left.get_type_name()
         return None
 
     def get_descriptor(self):
@@ -75,51 +90,66 @@ class Conjunction:
         self.id = id
 
     def ground(self, state):
-        if not self.first.is_grounded():
-            self.first.ground(state)
+        if not self.left.is_grounded():
+            self.left.ground(state)
 
-        if not self.second.is_grounded():
-            self.second.ground(state)
+        if not self.right.is_grounded():
+            self.right.ground(state)
 
         self.set_id(parse(state, '({0} {1} {2})'.format(self.tag,
-                                                        self.first.get_id(),
-                                                        self.second.get_id())))
+                                                        self.left.get_id(),
+                                                        self.right.get_id())))
 
     def is_grounded(self):
         return self.id is not None
 
-    def get_first(self):
-        return self.first
+    def get_left(self):
+        return self.left
 
-    def set_first(self, first):
-        self.first = first
+    def set_left(self, left):
+        self.left = left
 
-    def get_second(self):
-        return self.second
+    def get_right(self):
+        return self.right
 
-    def set_second(self, second):
-        self.second = second
+    def set_right(self, right):
+        self.right = right
 
     def __iter__(self):
-        if not isinstance(self.first, Conjunction):
-            yield self.first
+        if not isinstance(self.left, Conjunction):
+            yield self.left
         else:
-            for item in self.first:
+            for item in self.left:
                 yield item
-        if not isinstance(self.second, Conjunction):
-            yield self.second
+        if not isinstance(self.right, Conjunction):
+            yield self.right
         else:
-            for item in self.second:
+            for item in self.right:
                 yield item
+
+    def is_valid(self):
+        return self.left and self.left.is_valid() and self.right and self.right.is_valid()
 
     def __str__(self):
-        return '({0} {1} {2})'.format(self.tag, str(self.first), str(self.second))
+        outstr = self.tag
+        
+        outstr += '\n\t-'
+        for line in str(self.left).split('\n'):
+            outstr += '\n\t\t{}'.format(line)
+            
+        outstr += '\n\t-'
+        for line in str(self.right).split('\n'):
+            outstr += '\n\t\t{}'.format(line)
+            
+        return outstr
 
+    def __bool__(self):
+        return self.is_valid()
 
     def toJSON(self):
         return [item.toJSON() for item in self]
 
-class Conditional:
+class Conditional(object):
     def __init__(self, antecedent, consequent, persistent, inverted, mappings = []):
         self.antecedent = antecedent
         self.consequent = consequent
@@ -159,9 +189,15 @@ class Conditional:
     def __iter__(self):
         yield self.get_consequent()
 
+    def is_valid(self):
+        return self.antecedent and self.antecedent.is_valid() and self.consequent and self.consequent.is_valid()
+
     def __str__(self):
         return str(self.antecedent) + ': ' + str(self.consequent)
     
+    def __bool__(self):
+        return self.is_valid()
+
     def toJSON(self):
         return {
             'type': 'condition',
@@ -172,11 +208,16 @@ class Conditional:
             'mapping': self.mappings
         }
 
-class Object:
-    def __init__(self, type_name, descriptor = ''):
-        self.descriptor = descriptor
+class Object(object):
+    def __init__(self, type_name, name, attributes=None, relation=None, limit=None):
         self.type_name = type_name
+        self.name = name
 
+        self.attributes = attributes if attributes else []
+        
+        self.relation = relation
+        self.limit = limit
+        
     def get_type_name(self):
         return self.type_name
 
@@ -192,3 +233,60 @@ class Object:
             'object_type': self.type_name,
             'descriptor': self.descriptor
         }
+
+    def is_valid(self):
+        return self.type_name and self.name
+
+    def __str__(self):
+        outstr = '{}:{}'.format(self.type_name, self.name)
+        
+        if self.attributes:
+            outstr += '\n\tattributes:'
+        
+            for attr in self.attributes:
+                for line in str(attr).split('\n'):
+                    outstr += '\n\t\t{}'.format(line)
+
+        if self.relation:
+            outstr += '\n\trelation:'
+            
+            for line in str(self.relation).split('\n'):
+                outstr += '\n\t\t{}'.format(line)
+        
+        return outstr
+        
+    def __bool__(self):
+        return self.is_valid()
+        
+class Attribute(object):
+    def __init__(self, type_name, value):
+        self.type_name = type_name
+        self.value = value
+
+    def toJSON(self):
+        return {
+            'type': 'attribute',
+            'attr_type': self.type_name,
+            'value': self.descriptor
+        }
+
+    def __str__(self):
+        return '[{}={}]'.format(self.type_name, self.value)
+
+class Limit(object):
+    pass
+
+class Relation(object):
+    def __init__(self, predicate, child):
+        self.predicate = predicate
+        self.child = child
+
+    def __str__(self):
+        return '[{}={}]'.format(self.predicate, str(self.child))
+
+class Anaphora(Object):
+    def __init__(self, type_name, name):
+        super(Anaphora, self).__init__(type_name, name)
+
+    def __str__(self):
+        return 'anophora:it'
