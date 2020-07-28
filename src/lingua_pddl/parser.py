@@ -10,23 +10,12 @@ from lingua_kb.srv import Ask, AskRequest
 from lingua_kb.srv import Assert, AssertRequest
 
 class Parser:
-  _kb_ask = None  
-  _kb_assert = None
+  @staticmethod
+  def parse(state, query, as_conjunction = True, debugging = False):
+      return Parser.recursive_parse(state, query, as_conjunction, 0)
 
   @staticmethod
-  def init():
-    Parser._kb_ask = rospy.ServiceProxy('/kb/ask', Ask)
-    Parser._kb_assert = rospy.ServiceProxy('/kb/assert', Assert)
-    Parser._kb_ask.wait_for_service()
-    Parser._kb_assert.wait_for_service()
-
-
-  @staticmethod
-  def parse(query, as_conjunction = True, debugging = False):
-      return Parser.recursive_parse(query, as_conjunction, 0)
-
-  @staticmethod
-  def recursive_parse(query, as_conjunction, layer):
+  def recursive_parse(state, query, as_conjunction, layer):
       if Parser.is_atom(query):
           return query
 
@@ -34,11 +23,11 @@ class Parser:
           return Parser.evaluate_condition(query)
 
       for term in Parser.logical_split(query)[1:]:
-          result = Parser.recursive_parse(term, as_conjunction, layer + 1)
+          result = Parser.recursive_parse(state, term, as_conjunction, layer + 1)
           query = query.replace(term, result, 1)
 
       if Parser.is_query(query):
-          return Parser.evaluate_query(query)
+          return Parser.evaluate_query(state, query)
 
       if Parser.is_intersection(query):
           return Parser.evaluate_intersection(query)
@@ -61,7 +50,7 @@ class Parser:
       return query
 
   @staticmethod
-  def evaluate_query(condition, layer = 0):
+  def evaluate_query(state, condition, layer = 0):
       if not Parser.is_query(condition):
           return condition
 
@@ -74,17 +63,14 @@ class Parser:
 
           retval = set()
           for x in list(itertools.product(atoms[1], atoms[2])):
-              retval.add(evaluate_query('(' + atoms[0] + ' ' + x[0] + ' ' + x[1] + ')', layer))
+              retval.add(evaluate_query(state, '(' + atoms[0] + ' ' + x[0] + ' ' + x[1] + ')', layer))
 
           if len(retval) > 1:
               return '(set ' + ' '.join(list(retval)) + ')'
 
           return retval.pop()
 
-      if not Parser._kb_ask:
-        Parser.init()
-
-      result = Parser._kb_ask(condition).data
+      result = state.ask(condition)
 
       if not result:
           raise NullStatement(condition)
@@ -328,3 +314,6 @@ class Parser:
       pieces = itertools.product(*pieces)
 
       return '(and ' + ' '.join(['(' + ' '.join(piece) + ')' for piece in pieces]) + ')'
+
+if __name__ == '__main__':
+  print(Parser.parse('(and (class_label ball ?) (color red ?))'))
