@@ -9,6 +9,7 @@ class State:
       self.kb_assert = rospy.ServiceProxy('/kb/assert', lingua_kb.srv.Assert)
       self.kb_tell = rospy.ServiceProxy('/kb/tell', lingua_kb.srv.Tell)
       self.kb_state = rospy.ServiceProxy('/kb/state', lingua_kb.srv.State)
+      self.kb_hierarchy = rospy.ServiceProxy('/kb/types/hierarchy', lingua_kb.srv.Hierarchy)
 
     def ask(self, fact):
         if Parser.is_query(fact):
@@ -40,6 +41,10 @@ class State:
 
     def difference(self, other):
         return self.snapshot().difference(other)
+
+    def get_hierarchy(self, typename):
+      resp = self.kb_hierarchy(typename)
+      return (resp.parents, resp.children)
 
     def __str__(self):
       return '\n'.join(sorted(list(self.kb.dump())))
