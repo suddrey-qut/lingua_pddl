@@ -3,13 +3,17 @@ import copy
 
 import lingua_kb.srv
 
-class State:
+class State(object):
     def __init__(self):
       self.kb_ask = rospy.ServiceProxy('/kb/ask', lingua_kb.srv.Ask)
       self.kb_assert = rospy.ServiceProxy('/kb/assert', lingua_kb.srv.Assert)
       self.kb_tell = rospy.ServiceProxy('/kb/tell', lingua_kb.srv.Tell)
       self.kb_state = rospy.ServiceProxy('/kb/state', lingua_kb.srv.State)
+      
       self.kb_hierarchy = rospy.ServiceProxy('/kb/types/hierarchy', lingua_kb.srv.Hierarchy)
+      self.kb_handlers = rospy.ServiceProxy('/kb/handlers/get', lingua_kb.srv.Get)
+
+      self._handlers = None
 
     def ask(self, fact):
         if Parser.is_query(fact):
@@ -34,7 +38,7 @@ class State:
             return on_fail
 
     def snapshot(self):
-        return Snapshot(self.kb_state().data)
+        return Snapshot(self, self.kb_state().data)
 
     def copy(self):
       return self.snapshot().copy()
@@ -59,36 +63,66 @@ class State:
         return not self.__eq__(other)
 
 class Snapshot(State):
-  def __init__(self, facts):
+  def __init__(self, state, facts):
+    super(Snapshot, self).__init__()
+    self.__dict__ = state.__dict__
     self.facts = facts
-
+    
+    self._cache = []
+    
   def ask(self, fact):
     if Parser.is_negative(fact):
       return not self.ask(Parser.negate(fact))
 
-    if '?' not in fact:
-      return fact in self.facts
-    
     tokens = Parser.logical_split(fact)
 
-    result = []
-    if tokens[0] == '?':
-      for item in self.facts:
-        result += re.findall('\(([^\)]*) {} {}\)'.format(tokens[1], tokens[2]), item)
+    if self._handlers is None:
+      self._handlers = self.kb_handlers().names
 
-    elif tokens[1] == '?':
-      for item in self.facts:
-        result += re.findall('\({} ([^\)]*) {}\)'.format(tokens[0], tokens[2]), item)
+    if tokens[0] in self._handlers and fact not in self._cache:
+      result = super(Snapshot, self).ask(fact)
+      if '?' not in fact:
+        self.facts += [ fact ] if result else []
+        self._cache.append(fact)
+
+      else:
+        for item in result:
+          self.facts += [ fact.replace('?', item) ]
+          self._cache.append(self.facts[-1])
       
-    elif tokens[2] == '?':
+
+    if '?' not in fact:
+      return fact in self.facts
+
+    result = []
+
+    if len(tokens) == 2:
       for item in self.facts:
-        result += re.findall('\({} {} ([^\)]*)\)'.format(tokens[0], tokens[1] if tokens[1][0] != '!' else '(?!{})[^\s]*'.format(tokens[1][1:])), item)
+        result += re.findall('\({} ([^\)]*)\)'.format(tokens[0]), item)
+    else:
+      if tokens[0] == '?':
+        for item in self.facts:
+          result += re.findall('\(([^\)]*) {} {}\)'.format(tokens[1], tokens[2]), item)
+
+      elif tokens[1] == '?':
+        for item in self.facts:
+          result += re.findall('\({} ([^\)]*) {}\)'.format(tokens[0], tokens[2]), item)
+        
+      elif tokens[2] == '?':
+        for item in self.facts:
+          result += re.findall('\({} {} ([^\)]*)\)'.format(tokens[0], tokens[1] if tokens[1][0] != '!' else '(?!{})[^\s]*'.format(tokens[1][1:])), item)
 
     return result
     
   def update(self, fact):
+    self.cache(fact)
+        
     if Parser.is_negative(fact):
-      self.facts.remove(Parser.negate(fact))
+      try:
+        self.facts.remove(Parser.negate(fact))
+      except ValueError:
+        return
+
     self.facts.append(fact)
 
   def snapshot(self):
@@ -99,6 +133,20 @@ class Snapshot(State):
 
   def difference(self, other):
     return set(self.facts).difference(other.snapshot().facts)
+
+  def cache(self, fact):
+    if self._handlers is None:
+      self._handlers = self.kb_handlers().names
+
+    fact = Parser.negate(fact) if Parser.is_negative(fact) else fact
+
+    tokens = Parser.logical_split(fact)
+    
+    if tokens[0] in self._handlers and fact not in self._cache:
+      self._cache.append(fact)
+      return True
+
+    return False
 
   def __iter__(self):
     for fact in self.facts:
