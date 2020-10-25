@@ -70,7 +70,7 @@ class Parser:
 
           return retval.pop()
 
-      result = state.ask(condition)
+      result = state.poll(condition)
 
       if not result:
           raise NullStatement(condition)

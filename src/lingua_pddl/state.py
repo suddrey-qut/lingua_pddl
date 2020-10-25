@@ -16,10 +16,11 @@ class State(object):
       self._handlers = None
 
     def ask(self, fact):
-        if Parser.is_query(fact):
-          return self.kb_ask(fact).data
+      if Parser.is_query(fact):
+        result = Parser.parse(self, fact)
+        return result
         
-        return self.kb_assert(fact).result
+      return self.kb_assert(fact).result
 
     def update(self, fact):
       self.kb_tell(fact)
@@ -32,7 +33,7 @@ class State(object):
 
             if Parser.is_iterable(statement) or Parser.is_atom(statement):
                 return True
-
+            print(statement)
             return not statement or self.ask(statement)
         except NullStatement as e:
             return on_fail
@@ -49,6 +50,11 @@ class State(object):
     def get_hierarchy(self, typename):
       resp = self.kb_hierarchy(typename)
       return (resp.parents, resp.children)
+
+    def poll(self, atom):
+      if Parser.is_atom(atom):
+        raise Exception('Supplied term is not atomic')
+      return self.kb_ask(atom).data
 
     def __str__(self):
       return '\n'.join(sorted(list(self.kb.dump())))
