@@ -20,7 +20,7 @@ class Parser:
           return query
 
       if Parser.is_conditional(query):
-          return Parser.evaluate_condition(query)
+          return Parser.evaluate_condition(state, query)
 
       for term in Parser.logical_split(query)[1:]:
           result = Parser.recursive_parse(state, term, as_conjunction, layer + 1)
@@ -59,11 +59,11 @@ class Parser:
       if len(atoms) == 3 and (Parser.is_iterable(atoms[1]) or Parser.is_iterable(atoms[2])):
           for idx, component in enumerate(atoms[1:]):
               if Parser.is_iterable(component):
-                  atoms[idx + 1] = logical_split(component)[1:]
+                  atoms[idx + 1] = Parser.logical_split(component)[1:]
 
           retval = set()
           for x in list(itertools.product(atoms[1], atoms[2])):
-              retval.add(evaluate_query(state, '(' + atoms[0] + ' ' + x[0] + ' ' + x[1] + ')', layer))
+              retval.add(Parser.evaluate_query(state, '(' + atoms[0] + ' ' + x[0] + ' ' + x[1] + ')', layer))
 
           if len(retval) > 1:
               return '(set ' + ' '.join(list(retval)) + ')'
@@ -81,21 +81,21 @@ class Parser:
       return result[0]
 
   @staticmethod
-  def assert_statement(statement):
-      return Parser._kb_assert(statement).result
+  def assert_statement(state, statement):
+      return state.ask(statement).result
 
   @staticmethod
-  def evaluate_condition(condition):
+  def evaluate_condition(state, condition):
       if not Parser.is_conditional(condition):
           return condition
 
       terms = Parser.logical_split(condition)[1:]
 
-      if Parser.assert_statement(terms[0]):
-          return parse(terms[1])
+      if Parser.assert_statement(state, terms[0]):
+          return Parser.parse(state, terms[1])
 
       if len(terms) > 2:
-          return parse(terms[2])
+          return Parser.parse(state, terms[2])
 
       return str()
 
@@ -121,7 +121,7 @@ class Parser:
 
   @staticmethod
   def evaluate_union(condition):
-      if not is_union(condition):
+      if not Parser.is_union(condition):
           return condition
 
       atoms = [Parser.logical_split(term)[(1 if Parser.is_iterable(term) else 0):] for term in Parser.logical_split(condition)[1:]]
@@ -261,35 +261,6 @@ class Parser:
       return '(set ' in term
 
   @staticmethod
-  def is_tautology(term):
-      if Parser.is_atom(term):
-          return False
-
-      if not Parser._kb_ask:
-        Parser.init()
-
-      constituents = Parser.logical_split(term)
-
-      predicate_name = constituents[0]
-      inverse_name = state.kb.inverse(predicate_name)
-
-      for idx, constituent in enumerate(constituents[1:]):
-          if Parser.is_atom(constituent):
-              continue
-
-          child_consituents = Parser.logical_split(constituent)
-
-          if child_consituents[0] == predicate_name:
-              if child_consituents[1 + idx] == '?' and child_consituents[2 - idx] == constituents[2 - idx]:
-                  return True
-
-          if child_consituents[0] == inverse_name:
-              if child_consituents[2 - idx] == '?' and child_consituents[1 + idx] == constituents[2 - idx]:
-                  return True
-
-      return False
-
-  @staticmethod
   def negate(term):
       if term.startswith('(not '):
           return Parser.logical_split(term)[1]
@@ -300,14 +271,14 @@ class Parser:
       if Parser.is_iterable(term) or not Parser.contains_iterable(term):
           return term
 
-      atoms = logical_split(term)
+      atoms = Parser.logical_split(term)
       pieces = []
 
       for atom in atoms:
           atom = Parser.build_conjunction(atom)
 
           if Parser.is_iterable(atom):
-              pieces.append(logical_split(atom)[1:])
+              pieces.append(Parser.logical_split(atom)[1:])
           else:
               pieces.append([atom])
 
@@ -316,4 +287,4 @@ class Parser:
       return '(and ' + ' '.join(['(' + ' '.join(piece) + ')' for piece in pieces]) + ')'
 
 if __name__ == '__main__':
-  print(Parser.parse('(and (class_label ball ?) (color red ?))'))
+  print(Parser.parse(None, '(and (class_label ball ?) (color red ?))'))
