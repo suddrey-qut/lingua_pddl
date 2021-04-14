@@ -33,7 +33,6 @@ class State(object):
 
             if Parser.is_iterable(statement) or Parser.is_atom(statement):
                 return True
-            print(statement)
             return not statement or self.ask(statement)
         except NullStatement as e:
             return on_fail
