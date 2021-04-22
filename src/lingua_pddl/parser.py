@@ -29,6 +29,9 @@ class Parser:
       if Parser.is_query(query):
           return Parser.evaluate_query(state, query)
 
+      if Parser.is_negative(query):
+          return Parser.evaluate_negation(state, query)
+
       if Parser.is_intersection(query):
           return Parser.evaluate_intersection(query)
 
@@ -69,6 +72,21 @@ class Parser:
               return '(set ' + ' '.join(list(retval)) + ')'
 
           return retval.pop()
+
+      result = state.poll(condition)
+
+      if not result:
+          raise NullStatement(condition)
+        
+      if len(set(result)) > 1:
+          return '(set ' + ' '.join(set(result)) + ')'
+
+      return result[0]
+
+  @staticmethod
+  def evaluate_negation(state, condition, layer = 0):
+      if not Parser.is_negative(condition):
+          return condition
 
       result = state.poll(condition)
 

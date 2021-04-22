@@ -6,6 +6,7 @@ import lingua_kb.srv
 class State(object):
     def __init__(self):
       self.kb_ask = rospy.ServiceProxy('/kb/ask', lingua_kb.srv.Ask)
+      self.kb_inverse = rospy.ServiceProxy('/kb/inverse', lingua_kb.srv.Ask)
       self.kb_assert = rospy.ServiceProxy('/kb/assert', lingua_kb.srv.Assert)
       self.kb_tell = rospy.ServiceProxy('/kb/tell', lingua_kb.srv.Tell)
       self.kb_state = rospy.ServiceProxy('/kb/state', lingua_kb.srv.State)
@@ -54,6 +55,9 @@ class State(object):
       if Parser.is_atom(atom):
         raise Exception('Supplied term is not atomic')
       return self.kb_ask(atom).data
+
+    def inverse(self, atom):
+      return self.kb_inverse(atom).data
 
     def __str__(self):
       return '\n'.join(sorted(list(self.kb.dump())))
